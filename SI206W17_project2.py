@@ -32,7 +32,15 @@ api = tweepy.API(auth, parser=tweepy.parsers.JSONParser())
 ## Part 0 -- CACHING SETUP
 
 ## Write the code to begin your caching pattern setup here.
+cache_file_name = "project2_caching.json"
 
+try:
+	cache_file = open(cache_file_name, "r")
+	cache_content = cache_file.read()
+	cache_file.close()
+	CACHE_DICTION = json.loads(cache_content)
+except:
+	CACHE_DICTION= {}
 
 
 
@@ -45,7 +53,9 @@ api = tweepy.API(auth, parser=tweepy.parsers.JSONParser())
 ## find_urls("I love looking at websites like http://etsy.com and http://instagram.com and stuff") should return ["http://etsy.com","http://instagram.com"]
 ## find_urls("the internet is awesome #worldwideweb") should return [], empty list
 
-
+def find_urls(words):
+	URLS = re.findall(r'https?:\/\/\w+\.[0-9A-z\./]*\w{2}[0-9A-z/]*', words)
+	return URLS
 
 
 
@@ -61,18 +71,27 @@ api = tweepy.API(auth, parser=tweepy.parsers.JSONParser())
 ## Start with this page: https://www.si.umich.edu/directory?field_person_firstname_value=&field_person_lastname_value=&rid=All  
 ## End with this page: https://www.si.umich.edu/directory?field_person_firstname_value=&field_person_lastname_value=&rid=All&page=11 
 
-
-
-
+base = 'https://www.si.umich.edu/directory?field_person_firstname_value=&field_person_lastname_value=&rid=All'
+def get_umsi_data():
+	if 'umsi_directory_data' in CACHE_DICTION:
+		return CACHE_DICTION['umsi_directory_data']
+	else:
+		data = requests.get(base, headers={'User-Agent': 'SI_CLASS'})
+		htmldoc = data.text
+		soup= BeautifulSoup(htmldoc,"html.parser")
+		pages = []
+		if (soup.find("div",{"class":"pager-current"}) != "12 of 12"):
+			page = soup.find("div",{"id":"body-inside"})
+			umsi_pages.append(page)
+get_umsi_data()
 
 
 
 ## PART 2 (b) - Create a dictionary saved in a variable umsi_titles 
 ## whose keys are UMSI people's names, and whose associated values are those people's titles, e.g. "PhD student" or "Associate Professor of Information"...
 
-
-
-
+umsi_titles = {}
+pages_dict = get_umsi_data()
 
 
 
@@ -81,7 +100,18 @@ api = tweepy.API(auth, parser=tweepy.parsers.JSONParser())
 ## Behavior: See instructions. Should search for the input string on twitter and get results. Should check for cached data, use it if possible, and if not, cache the data retrieved.
 ## RETURN VALUE: A list of strings: A list of just the text of 5 different tweets that result from the search.
 
-
+for p in pages_dict:
+	#uses beautiful soup to parse through "people's information on the site"
+	soup = BeautifulSoup(p, "html.parser")
+	people_list = soup.find_all("div", {"class":"views-row"})
+	# Parses through the people's list
+	for people in people_list: 
+		#iterates through the parsed people date and indexes the content based on tites from usi and name
+		name = people.find('div', attrs ={'property' : 'dc:title'}).contents[0].text
+		# parses date from name and titles and sets it equal to a dict title
+		title_dict = people.find('div', class_='field-name-field-person-titles').contents[0].text
+		#upates the data from the name and the dictionary that has the titles as well. 
+		umsi_titles.update({name : title_dict})
 
 
 ## PART 3 (b) - Write one line of code to invoke the get_five_tweets function with the phrase "University of Michigan" and save the result in a variable five_tweets.
