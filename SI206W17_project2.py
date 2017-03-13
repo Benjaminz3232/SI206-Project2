@@ -1,8 +1,9 @@
 ## SI 206 W17 - Project 2 
 
 ## COMMENT HERE WITH:
-## Your name:
-## Anyone you worked with on this project:
+## Your name: Benjamin Zeffer
+## Discussion: Thursday (6-7 PM)
+## Anyone you worked with on this project: N/A
 
 ## Below we have provided import statements, comments to separate out the parts of the project, instructions/hints/examples, and at the end, tests. See the PDF of instructions for more detail. 
 ## You can check out the SAMPLE206project2_caching.json for an example of what your cache file might look like.
@@ -16,9 +17,12 @@ import requests
 import tweepy
 import twitter_info # Requires you to have a twitter_info file in this directory
 from bs4 import BeautifulSoup
+import re # Import Statement for RegX
 
 ## Tweepy authentication setup
 ## Fill these in in the twitter_info.py file
+## Created a secret twitter_info.py file that contains my Personal Account's Secret Keys!
+
 consumer_key = twitter_info.consumer_key
 consumer_secret = twitter_info.consumer_secret
 access_token = twitter_info.access_token
@@ -32,15 +36,17 @@ api = tweepy.API(auth, parser=tweepy.parsers.JSONParser())
 ## Part 0 -- CACHING SETUP
 
 ## Write the code to begin your caching pattern setup here.
-cache_file_name = "project2_caching.json"
+
+CACHE_FNAME = "206project2_caching.json"
 
 try:
-	cache_file = open(cache_file_name, "r")
-	cache_content = cache_file.read()
-	cache_file.close()
-	CACHE_DICTION = json.loads(cache_content)
+    cache_file = open(CACHE_FNAME,'r') #reading the data from the cache file
+    cache_contents = cache_file.read() # get the data into a string
+    CACHE_DICTION = json.loads(cache_contents) #load that stuff info a dictionary
+    cache_file.close() # close that file when were done with it
 except:
-	CACHE_DICTION= {}
+    CACHE_DICTION = {} # if there is nothing there, make sure that CACHE_DICTION is empty!
+
 
 
 
@@ -53,13 +59,9 @@ except:
 ## find_urls("I love looking at websites like http://etsy.com and http://instagram.com and stuff") should return ["http://etsy.com","http://instagram.com"]
 ## find_urls("the internet is awesome #worldwideweb") should return [], empty list
 
-def find_urls(words):
-	URLS = re.findall(r'https?:\/\/\w+\.[0-9A-z\./]*\w{2}[0-9A-z/]*', words)
-	return URLS
-
-
-
-
+def find_urls(inp_string):
+	parsed_urls = re.findall("http[s]?:\/\/[A-Za-z0-9]+(?:\.[A-Za-z0-9]{2,})\S+", inp_string)
+	return parsed_urls
 
 ## PART 2 (a) - Define a function called get_umsi_data.
 ## INPUT: N/A. No input.
@@ -71,59 +73,95 @@ def find_urls(words):
 ## Start with this page: https://www.si.umich.edu/directory?field_person_firstname_value=&field_person_lastname_value=&rid=All  
 ## End with this page: https://www.si.umich.edu/directory?field_person_firstname_value=&field_person_lastname_value=&rid=All&page=11 
 
-base = 'https://www.si.umich.edu/directory?field_person_firstname_value=&field_person_lastname_value=&rid=All'
 def get_umsi_data():
-	if 'umsi_directory_data' in CACHE_DICTION:
-		return CACHE_DICTION['umsi_directory_data']
-	else:
-		data = requests.get(base, headers={'User-Agent': 'SI_CLASS'})
-		htmldoc = data.text
-		soup= BeautifulSoup(htmldoc,"html.parser")
-		pages = []
-		if (soup.find("div",{"class":"pager-current"}) != "12 of 12"):
-			page = soup.find("div",{"id":"body-inside"})
-			umsi_pages.append(page)
-get_umsi_data()
+	cache_id = "umsi_directory_data"
+	base_url = "https://www.si.umich.edu/directory?field_person_firstname_value=&field_person_lastname_value=&rid=All&page="
+	response_data = []
 
+	if cache_id in CACHE_DICTION:
+		# print ("Using the Cached Data from the UMSI Website...")
+		return CACHE_DICTION[cache_id]
+
+	else:
+		# print ("Gathering Data from UMSI Website...")
+
+		for page in range(0,12): #because there are 12 pages in the SI Directory
+			request_url = base_url + str(page)
+			messy_data = requests.get(request_url, headers={'User-Agent': 'SI_CLASS'})
+			response_data.append(messy_data.text)
+			
+		CACHE_DICTION[cache_id] = response_data
+		
+		dump_data = open(CACHE_FNAME,'w')
+		dump_data.write(json.dumps(CACHE_DICTION))
+		dump_data.close()
+
+	return CACHE_DICTION[cache_id]
 
 
 ## PART 2 (b) - Create a dictionary saved in a variable umsi_titles 
 ## whose keys are UMSI people's names, and whose associated values are those people's titles, e.g. "PhD student" or "Associate Professor of Information"...
 
 umsi_titles = {}
-pages_dict = get_umsi_data()
 
+names = []
+titles = []
 
+for person in get_umsi_data():
+	soup = BeautifulSoup(person,'html.parser')
+
+	for name in soup.find_all('div', {'class': 'field-name-title'}):
+		names.append(name.text)
+
+	for title in soup.find_all('div',{'class': 'field-name-field-person-titles'}):
+		titles.append(title.text)
+
+umsi_titles = dict(zip(names,titles)) #using the two lists to zip them together to make a dictionary!
+
+# print (umsi_titles)
 
 ## PART 3 (a) - Define a function get_five_tweets
 ## INPUT: Any string
 ## Behavior: See instructions. Should search for the input string on twitter and get results. Should check for cached data, use it if possible, and if not, cache the data retrieved.
 ## RETURN VALUE: A list of strings: A list of just the text of 5 different tweets that result from the search.
 
-for p in pages_dict:
-	#uses beautiful soup to parse through "people's information on the site"
-	soup = BeautifulSoup(p, "html.parser")
-	people_list = soup.find_all("div", {"class":"views-row"})
-	# Parses through the people's list
-	for people in people_list: 
-		#iterates through the parsed people date and indexes the content based on tites from usi and name
-		name = people.find('div', attrs ={'property' : 'dc:title'}).contents[0].text
-		# parses date from name and titles and sets it equal to a dict title
-		title_dict = people.find('div', class_='field-name-field-person-titles').contents[0].text
-		#upates the data from the name and the dictionary that has the titles as well. 
-		umsi_titles.update({name : title_dict})
+def get_five_tweets(any_string):
+	unique_identifier = "twitter_{}".format(any_string)
+	if unique_identifier in CACHE_DICTION:
+		tresults = CACHE_DICTION[unique_identifier]
 
+	else:
+		tresults = api.search(q=any_string)
+		CACHE_DICTION[unique_identifier] = tresults
+
+		dresults = open(CACHE_FNAME,'w')
+		dresults.write(json.dumps(CACHE_DICTION))
+		dresults.close()
+
+	top_five_tweets = []
+
+	for tweet in tresults["statuses"]:
+		top_five_tweets.append(tweet['text'])
+
+	return top_five_tweets[:5]
 
 ## PART 3 (b) - Write one line of code to invoke the get_five_tweets function with the phrase "University of Michigan" and save the result in a variable five_tweets.
 
+five_tweets = get_five_tweets("University of Michigan")
 
-
+# print (five_tweets)
 
 ## PART 3 (c) - Iterate over the five_tweets list, invoke the find_urls function that you defined in Part 1 on each element of the list, and accumulate a new list of each of the total URLs in all five of those tweets in a variable called tweet_urls_found. 
 
+tweet_urls_list = []
 
+for tweet in five_tweets:
+	for a_url in find_urls(tweet):
+		tweet_urls_list.append(a_url)
 
+tweet_urls_found = tuple(tweet_urls_list) #casting the list to a tuple so that it can pass the test provided below
 
+# print (tweet_urls_found)
 
 ########### TESTS; DO NOT CHANGE ANY CODE BELOW THIS LINE! ###########
 
@@ -175,6 +213,7 @@ class PartTwo(unittest.TestCase):
 		self.assertEqual(sorted(umsi_titles.keys()),['Adrienne Nwachukwu', "Alaina O'Connor", 'Alexandra Haller', 'Alicia Baker', 'Alissa Centivany', 'Alissa Talley-Pixley', 'Allan Martell', 'Allen Flynn', 'Allison Sweet', 'Allison Tyler', 'Amanda Ciacelli', 'Andrea Barbarin', 'Andrea Daly', 'Andy Wright', 'Anna Thompson', 'Annie Knill', 'Aprille McKay', 'Ayse Buyuktur', 'Barbara Smith', 'Barry Fishman', 'Ben Armes', 'Bradley Iott', 'Caitlin Holman', 'Carl Haynes', 'Carl Lagoze', 'Carol Moser', 'Carolyn Frost', 'Carolyn Gregurich', 'Casey Pierce', 'Catherine Robinson', 'Celia Riecker', 'Ceren Budak', 'Chanda Phelan', 'Charles Friedman', 'Charles Severance', 'Chen Wang', 'Cheng Li', 'Chris Teplovs', 'Christian Sandvig', 'Christopher Brooks', 'Chuan-Che Huang', 'Cindy Kaiying Lin', 'Claudia Leo', 'Clifford Lampe', 'Colleen Van Lent', 'Corey Turner', 'Craig Johnson', 'D TenBrink', 'Danaja Maldeniya', 'Daniel Atkins III', 'Daniel Klyn', 'Daniel Romero', 'Daphne Chang', 'David Hanauer', 'David Hessler', 'David Wallace', 'David Young', 'Deborah Apsley', 'Desmond Patton', 'Devon Keen', 'Douglas Van Houweling', 'Dragomir Radev', 'Earnest Wheeler', 'Edward Happ', 'Edward Platt', 'Elena Godin', 'Elizabeth Kaziunas', 'Elizabeth Whittaker', 'Elizabeth Yakel', 'Elliot Soloway', 'Erik Hofer', 'Erin Krupka', 'Evan Hoye', 'Eytan Adar', 'Fangzhou Zhang', 'Florian Schaub', 'Francis Blouin Jr', 'Gary Olson', 'Gaurav Paruthi', 'George Furnas', 'George Sprague', 'Glenda Bullock', 'Grace YoungJoo Jeon', 'Hariharan Subramonyam', 'Harmanpreet Kaur', 'Heather Newman', 'Heeryung Choi', 'Heidi Skrzypek', 'Helen Severino', 'Iman Yeckehzaare', 'Iris Gomez-Lopez', 'Jaclyn Cohen', 'Jacques Chestnut', 'James Duderstadt', 'James Hilton', 'Jasmine Jones', 'Jean Hardy', 'Jeff Stern', 'Jeffrey MacKie-Mason', 'Jeremy York', 'Jessica Litman', 'Jiaqi Ma', 'Jo Angela Oehrli', 'Joan Durrance', 'Joanna Kroll', 'Jocelyn Webber', 'Jodee Jernigan', 'Joey Hsiao', 'John Leslie King', 'John Lockard', 'Jonathan Brier', 'Joyojeet Pal', 'Judith Olson', 'Judy Lawson', 'Julia Adler-Milstein', 'Jumanah Saadeh', 'Kanda Fletcher', 'Karen Markey', 'Katherine Lawrence', 'Kathryn Ross', 'Katie Dunn', 'Kelly Iott', 'Kelly Kowatch', 'Kentaro Toyama', 'Kevyn Collins-Thompson', 'Kristin Fontichiaro', 'Kyle Swanson', 'Laura Elgas', 'Laurence Kirchmeier', 'Leah Brand', 'Lia Bozarth', 'Lija Hogan', 'Lindsay Blackwell', 'Linfeng Li', 'Linh Huynh', 'Lionel Robert', 'Lorraine Buis', 'Lynn Johnson', 'Margaret Hedstrom', 'Margaret Levenstein', 'Mark Ackerman', 'Mark Newman', 'Mark Thompson-Kolar', 'Markus Mobius', 'Marsha Antal', 'Martha Pollack', 'Matthew Kay', 'Maurita Holland', 'Megh Marathe', 'Melissa Chalmers', 'Melissa Levine', 'Michael Hess', 'Michael Nebeling', 'Michael Shallcross', 'Michael Williams', 'Mohamed Abbadi', 'Nancy Benovich Gilby', 'Nayiri Mullinix', 'Nickie Rowsey', 'Nicole Ellison', 'Padma Chirumamilla', 'Paige Nong', 'Patricia Garcia', 'Paul Conway', 'Paul Courant', 'Paul Edwards', 'Paul Resnick', 'Pei-Yao Hung', 'Penny Trieu', 'Perry Samson', 'Predrag Klasnja', 'Priyank Chandra', 'Qiaozhu Mei', 'Rachael Wiener', 'Rasha Alahmad', 'Rayoung Yang', 'Rebecca Frank', "Rebecca O'Brien", 'Rebecca Pagels', 'Reginald Beasley', 'Ridley Jones', 'Rohail Syed', 'Ryan Burton', 'Samone Williams', 'Samuel Carton', 'Sangseok You', 'Sarah Argiero', 'Sarita Yardi Schoenebeck', 'Scott Staelgraeve', 'Seyram Avle', 'Shannon Zachary', 'Sheryl Smith', 'Shevon Desai', 'Shiqing (Licia) He', 'Shiyan Yan', 'Shriti Raj', "Sile O'Modhrain", 'Silvia Lindtner', 'Sonia Raheja', 'Soo Young Rieh', 'Sophia Brueckner', 'Stacy Callahan', 'Stephanie Teasley', 'Steve Oney', 'Sun Young Park', 'Sungjin Nam', 'T Charles Yun', 'Tamy Guberek', 'Tanya Rosenblat', 'Tawanna Dillahunt', 'Tawfiq Ammari', 'Teng Ye', 'Theodore Hanss Jr', 'Thomas Finholt', 'Thomas Slavens', 'Tiffany Veinot', 'Todd Ayotte', 'Todd Stuart', 'Tonya McCarley', 'Tsuyoshi Kano', 'VG Vinod Vydiswaran', 'Vadim Besprozvany', 'Veronica Falandino', 'Victor Rosenberg', 'Walt Borland', 'Walter Lasecki', 'Wei Ai', 'Xin Rong', 'Xuan Zhao', 'Yan Chen', 'Yingzhi Liang', 'Youyang Hou', 'Yu-Jen Lin', 'Yusuf Masatlioglu', 'Zhewei Song'],"Testing the dictionary keys")
 	def test_dict_values(self):
 		self.assertEqual(sorted(umsi_titles.values()),[' ', ' ', ' ', ' ', ' ', 'Academic Advisor', 'Academic Advisor', 'Academic Programs Coordinator', 'Accountant Senior', 'Adjunct Associate Professor of Information, School of Information', 'Adjunct Clinical Associate Professor of Information and iDream Program Manager, School of Information', 'Adjunct Professor of Business Economics and Public Policy, Stephen M Ross School of Business, Research Professor, Survey Research Center and ISR Center Director, Institute for Social Research', 'Administrative Assistant', 'Administrative Assistant Inter', 'Administrative Assistant Senior', 'Administrative Assistant and Events Coordinator', 'Administrative Director', 'Admissions Associate Dir Unit', 'Admissions and Student Affairs Assistant', 'Arthur F Thurnau Professor, Professor of Climate and Space Sciences and Engineering, College of Engineering and Professor of Information, School of Information', 'Arthur F Thurnau Professor, Professor of Education, School of Education and Professor of Information, School of Information', 'Arthur F Thurnau Professor, Professor of Electrical Engineering and Computer Science, College of Engr, Professor of Education, School of Education and Professor of Information, School of Information', 'Arthur F Thurnau Professor, Vice Provost for Academic Innovation, Office of the Provost and Executive Vice President for Academic Affairs, Dean of Libraries, University Library, Professor of Information, School of Information and Faculty Associate, Resear', 'Assistant Dean for Diversity, Equity, and Inclusion, School of Information', 'Assistant Director of Human Resources and Support Services', 'Assistant Director of Recruiting and Admissions, School of Information and Intermittent Lecturer in Social Work, School of Social Work', 'Assistant Director, Health Informatics Program', 'Assistant Professor of Art and Design, Penny W Stamps School of Art and Design and Assistant Professor of Information, School of Information', 'Assistant Professor of Art and Design, Penny W Stamps School of Art and Design and Assistant Professor of Information, School of Information', 'Assistant Professor of Electrical Engineering and Computer Science, College of Engineering and Assistant Professor of Information, School of Information', 'Assistant Professor of Family Medicine, Medical School and Assistant Professor of Information, School of Information', 'Assistant Professor of Information, School of Information', 'Assistant Professor of Information, School of Information', 'Assistant Professor of Information, School of Information', 'Assistant Professor of Information, School of Information', 'Assistant Professor of Information, School of Information', 'Assistant Professor of Information, School of Information and Assistant Professor of Art and Design. Penny W Stamps School of Art and Design', 'Assistant Professor of Information, School of Information and Assistant Professor of Electrical Engineering and Computer Science, College of Engineering', 'Assistant Professor of Information, School of Information and Assistant Professor of Electrical Engineering and Computer Science, College of Engineering', 'Assistant Professor of Information, School of Information and Assistant Professor of Electrical Engineering and Computer Science, College of Engineering', 'Assistant Professor of Information, School of Information and Assistant Professor of Electrical Engineering and Computer Science, College of Engineering', 'Assistant Professor of Information, School of Information and Assistant Professor of Electrical Engineering and Computer Science, College of Engineering', 'Assistant Professor of Information, School of Information and Assistant Professor of Electrical Engineering and Computer Science, College of Engineering', 'Assistant Professor of Information, School of Information and Assistant Professor of Health Behavior and Health Education, School of Public Health', 'Assistant Professor of Information, School of Information, Assistant Professor of Electrical Engineering and Computer Science, College of Engineering and Assistant Professor of Complex Systems, College of Literature, Science, and the Arts', 'Assistant Professor of Learning Health Sciences, Medical School and Assistant Professor of Information, School of Information', 'Assistant Professor of Social Work, School of Social Work and Assistant Professor of Information, School of Information', 'Associate Archivist and Assistant Director, Bentley Historical Library and Adjunct Lecturer in Information, School of Information', 'Associate Archivist, Bentley Historical Library and Assistant Director, Bentley Historical Library and Adjunct Lecturer in Information, School of Information', 'Associate Director UMSI Computing', 'Associate Director of Development & Alumni Relations', 'Associate Librarian, University of Michigan Library', 'Associate Professor Emerita of Information, School of Information', 'Associate Professor Emeritus of Information, School of Information', 'Associate Professor of  Pediatrics and Communicable Diseases, Medical School and Clinical Associate Professor of Information, School of Information', 'Associate Professor of Electrical Engineering and Computer Science, College of Engineering and Associate Professor of Information, School of Information', 'Associate Professor of Information, School of Information', 'Associate Professor of Information, School of Information', 'Associate Professor of Information, School of Information', 'Associate Professor of Information, School of Information', 'Associate Professor of Information, School of Information and Associate Professor of Economics, College of Literature, Science, and the Arts', 'Associate Professor of Information, School of Information and Associate Professor of Electrical Engineering and Computer Science, College of Engineering', 'Associate Professor of Information, School of Information and Associate Professor of Electrical Engineering and Computer Science, College of Engineering', 'Associate Professor of Information, School of Information and Associate Professor of Electrical Engineering and Computer Science, College of Engineering', 'Associate Professor of Information, School of Information and Associate Professor of Health Behavior and Health Education, School of Public Health', 'Associate Professor of Information, School of Information and Associate Professor of Health Management and Policy, School of Public Health', 'Associate Professor of Music, School of Music, Theatre & Dance and Associate Professor of Information, School of Information', 'Business Systems Analyst Assoc', 'Career Development & Engaged Learning Coordinator', 'Career Services Counselor and Internship Coordinator and Adjunct Lecturer in Information, School of Information', 'Chief Information Officer and Clinical Assistant Professor of Information, School of Information', 'Citizen Experience Design Community Development Liaison and Adjunct Lecturer in Information, School of Information', 'Clinical Associate Professor of  Information, School of Information', 'Clinical Associate Professor of Information, School of Information', 'Clinical Associate Professor of Information, School of Information', 'Communications Specialist', 'Community Engagement & Exchange Coordinator', 'Dean Emeritus, Arthur W Burks Collegiate Professor Emeritus of Information and Computer Science, Professor Emeritus of Information, School of Information, Professor Emeritus of Economics, College of Literature, Science, and the Arts and Professor Emeritus', 'Dean and Professor of Information, School of Information', 'Director Admissions and Student Affairs', 'Director of Career Development', 'Director of Development and Alumni Relations', 'Director of Development, Bentley Historical Library', 'Director of Engaged Learning Programs', 'Director of Finance', 'Director of Human Resources and Support Services', 'Director of Marketing and Communications', 'Director of Research Administration', 'Ehrenberg Director of Entrepreneurship, Adjunct Clinical Associate Professor of Information and Research Investigator, School of Information', 'Employer Relations Coordinator', 'Engagement Manager', 'Events Manager', 'Facilities Coordinator', 'Financial Specialist Senior', 'George Herbert Mead Collegiate Professor of Human-Computer Interaction, Professor of Information, School of Information and Professor of Electrical Engineering and Computer Science, College of Engineering', 'Graduate Programs Coordinator', 'Graphic Designer', 'HR Generalist Intermediate', 'Harold T Shapiro Collegiate Professor of Public Policy, Arthur F Thurnau Professor, Interim Provost and Executive Vice President for Academic Affairs, Office of the Provost  and Executive Vice President for Academic Affairs, Presidential Bicentennial Prof', 'Intermittent Lecturer I in Information, School of Information', 'Intermittent Lecturer in Information, School of Information', 'Intermittent Lecturer in Information, School of Information', 'Intermittent Lecturer in Information, School of Information', 'John F Nickoll Professor of Law, Professor of Law, Law School and Professor of Information, School of Information', 'Josiah Macy, Jr Professor of Medical Education, Chair, Department of Learning Health Sciences, Professor of Learning Health Sciences, Medical School, Professor of Information, School of Information and Professor of Health Management and Policy, School of ', 'Large-Scale Research Program Manager', 'Lead Developer, Digital Innovation Greenhouse and Adjunct Lecturer in Information, School of Information', 'Lecturer III in Information, School of Information', 'Lecturer III in Information, School of Information', 'Lecturer III in Information, School of Information and Intermittent Lecturer in Residential College, College of Literature, Science, and the Arts', 'Lecturer IV in Information and Research Investigator, School of Information', 'Lecturer IV in Information, School of Information', 'Librarian, Library Budget and Planning - Copyright, University Library', 'Librarian, Library Collection, University Library and Adjunct Lecturer in Information, School of Information', 'MHI Recruitment and Admissions Coordinator', 'Marketing Assistant Associate', 'Marketing Project Manager', 'Michael D Cohen Collegiate Professor of Information, Associate Dean for Research and Faculty Affairs, Professor of Information and Interim Director of Health Informatics, School of Information', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'PhD student', 'President Emeritus and University Professor of Science and Engineering', 'Professor Emerita of Information, School of Information', 'Professor Emerita of Information, School of Information', 'Professor Emerita of Information, School of Information, Professor Emerita of Computation and Information Systems, Stephen M Ross School of Business and Professor Emerita of Psychology, College of Literature, Science, and the Arts', 'Professor Emeritus of Information, School of Information', 'Professor Emeritus of Information, School of Information', 'Professor Emeritus of Information, School of Information and Professor Emeritus of Electrical Engineering and Computer Science, College of Engineering', 'Professor Emeritus of Information, School of Information and Professor Emeritus of Psychology, College of Literature, Science, and the Arts', 'Professor of Dentistry, Department of Periodontics and Oral Medicine, Associate Dean for Faculty Affairs and Institutional Effectiveness, School of Dentistry and Clinical Professor of Information, School of Information', 'Professor of Information, School of Information', 'Professor of Information, School of Information', 'Professor of Information, School of Information', 'Professor of Information, School of Information and Professor of History, College of Literature, Science, and the Arts', 'Professor of Information, School of Information and Professor of History, College of Literature, Science, and the Arts', 'Professor of Information, School of Information, Faculty Associate, Center for Political Studies, Institute for Social Research and Professor of Communication Studies, College of Literature, Science, and the Arts', 'Professor of Information, School of Information, Professor of Electrical Engineering and Computer Science, College of Engineering and Prof of Psychology, College of Literature, Science and the Arts', 'Professor of Information, School of Information, Professor of Electrical Engineering and Computer Science, College of Engineering and Professor of Linguistics, College of Literature, Science, and the Arts', 'Professor of Information, School of Information, Professor of Electrical Engineering and Computer Science, College of Engineering and Provost and Executive Vice President for Academic Affairs, Office of the Provost and Executive Vice President for Academi', 'Program Manager and Research Coordinator', 'Project Manager', 'Research Area Specialist , School of Information', 'Research Area Specialist Lead and Research Investigator, School of Information', 'Research Assistant Professor, School of Information', 'Research Fellow, Information, Research Investigator, Information and Lecturer III in Information, School of Information', 'Research Fellow, Information, School of Information', 'Research Fellow, Information, School of Information', 'Research Investigator, Information and Research Fellow, School of Information', 'Research Process Coordinator', 'Research Process Coordinator Senior', 'Research Process Manager', 'Research Professor, School of Information', 'Research and HR Administrative Assistant', 'Robert M Warner Collegiate Professor of Information, Professor of Information, School of Information and Faculty Associate, Institute for Social Research', 'School Registrar', 'School of Information Intern', 'Senior Assistant to the Dean', 'Senior Associate Dean for Academic Affairs and Professor of Information, School of Information', 'Senior Associate Librarian, Graduate Library, University Library and Intermittent Lecturer in Information, School of Information', 'Senior Associate Librarian, Learning and Teaching, University Library and Adjunct Lecturer in Curriculum Support, College of Literature, Science, and the Arts', 'Social Media Specialist', 'Solution Architect Lead and Adjunct Lecturer in Information, Sch of Information, Director of Infrastructure ActiveStep, App Programmer/Analyst Ld, Family Medicine, Medical School', 'Student Services Assistant', 'Systems Programmer Analyst', 'Systems Programmer/Analyst Lead', 'Undergraduate Program Manager', 'Unix and IT Security Administrator', 'Videographer', 'Visiting Associate Professor of Economics, College of Literature, Science, and the Arts and Adjunct Associate Professor of Information, School of Information', 'W K Kellogg Professor of Community Information, Associate Professor of Information, School of Information', 'Web Software Developer', 'William Warner Bishop Collegiate Professor of Information and Professor of Information, School of Information'])
+
 class PartThree(unittest.TestCase):
 	def test_get_tweets(self):
 		self.assertEqual(len(get_five_tweets("University of Michigan")),5,"Testing that get_five_tweets returns a sequence of 5 things")
